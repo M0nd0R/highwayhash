@@ -20,6 +20,8 @@
 // dependencies must not define any function unless it is static inline and/or
 // within namespace HH_TARGET_NAME. See arch_specific.h for details.
 
+#include <string.h>
+
 #include "highwayhash/arch_specific.h"
 #include "highwayhash/compiler_specific.h"
 #include "highwayhash/hh_types.h"
@@ -67,6 +69,17 @@ LoadUnaligned(const uint64_t* const HH_RESTRICT from) {
   const PPC_VEC_U64* const HH_RESTRICT p =
       reinterpret_cast<const PPC_VEC_U64*>(from);
   return vec_vsx_ld(0, p);
+}
+
+// Scalar unaligned load. LoadMultipleOfFour is called by UpdateRemainder with
+// 'bytes' that is not guaranteed to be 4-byte aligned, so reading it through a
+// uint32_t* is undefined behaviour. HHStateSSE41 and HHStateNEON load those
+// words with an unaligned load for the same reason; this is the VSX equivalent.
+template <class T>
+HH_INLINE T LoadScalarUnaligned(const void* from) {
+  T ret;
+  memcpy(&ret, from, sizeof(ret));
+  return ret;
 }
 
 static HH_INLINE void StoreUnaligned(const PPC_VEC_U64& hash,
@@ -288,14 +301,14 @@ class HHStateVSX {
     // Updating the entries, as if done by vec_insert function call
     PPC_VEC_U32 ret = {0, 0, 0, 0};
     if (size & 8) {
-      ret[0] = words[0];
-      ret[1] = words[1];
+      ret[0] = LoadScalarUnaligned<uint32_t>(words);
+      ret[1] = LoadScalarUnaligned<uint32_t>(words + 1);
       words += 2;
       if (size & 4) {
-        ret[2] = words[0];
+        ret[2] = LoadScalarUnaligned<uint32_t>(words);
       }
     } else if (size & 4) {
-      ret[0] = words[0];
+      ret[0] = LoadScalarUnaligned<uint32_t>(words);
     }
     return reinterpret_cast<PPC_VEC_U64>(ret);
   }
